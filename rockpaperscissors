@@ -1,0 +1,41 @@
+import random
+
+# Settings
+RED = "\033[31m"
+RESET = "\033[0m"
+options = ("rock", "paper", "scissors")
+
+user_score =  0
+computer_score = 0
+
+print("I am RPS, let's play best 2 out of 3\n")
+
+while (user_score < 2 and computer_score < 2):
+    userinput = input("Choose Rock, Paper, or Scissors: ")
+    userchoice = userinput.strip().lower()
+
+    while userchoice not in options:
+        print(f"{RED}Error{RESET}")
+        userinput = input("Choose Rock, Paper, or Scissors: ")
+        userchoice = userinput.strip().lower()
+
+    # Computer choice
+    computerchoice = random.choice(options)
+
+    print(f"\nPlayer: {userchoice}\nComputer: {computerchoice}")
+
+    if userchoice == computerchoice:
+        print("It's a tie!\n")
+    elif (userchoice == "rock" and computerchoice == "scissors") or\
+         (userchoice == "paper" and computerchoice == "rock") or \
+         (userchoice == "scissors" and computerchoice == "paper"):
+        user_score += 1
+        print(f"\nYou win. Score: {user_score}-{computer_score}\n")
+    else:
+        computer_score += 1
+        print(f"\nI win! Score: {user_score}-{computer_score}")
+
+if user_score == 2:
+  print("i am not worthy :(")
+else:
+  print("gg")
