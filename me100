@@ -2,8 +2,19 @@ import RPi.GPIO as GPIO
 import time
 import random
 import threading
+from time import strftime
+from RPLCD.i2c import CharLCD
 
 GPIO.setmode(GPIO.BCM)
+
+# ------------------------
+# LCD setup
+# ------------------------
+lcd = CharLCD('PCF8574', 0x27)
+
+lcd_lock = threading.Lock()
+stop_clock = threading.Event()
+message_override = threading.Event()
 
 # ------------------------
 # Button pins
@@ -34,7 +45,7 @@ BUZZER = 26
 GPIO.setup(BUZZER, GPIO.OUT)
 
 # PWM object for buzzer
-buzzer_pwm = GPIO.PWM(BUZZER, 440)  # default frequency, changed later
+buzzer_pwm = GPIO.PWM(BUZZER, 200)
 
 # ------------------------
 # Notes
@@ -84,6 +95,31 @@ COLORS = ["red", "yellow", "green"]
 stop_music = threading.Event()
 
 
+def lcd_show(line1="", line2=""):
+    with lcd_lock:
+        lcd.clear()
+        lcd.cursor_pos = (0, 0)
+        lcd.write_string(line1[:16].ljust(16))
+        lcd.cursor_pos = (1, 0)
+        lcd.write_string(line2[:16].ljust(16))
+
+
+def lcd_show_temp(line1="", line2="", duration=1.5):
+    message_override.set()
+    lcd_show(line1, line2)
+    time.sleep(duration)
+    message_override.clear()
+
+
+def clock_loop():
+    while not stop_clock.is_set():
+        if not message_override.is_set():
+            now_date = strftime('%m/%d/%Y')
+            now_time = strftime('%I:%M:%S %p')
+            lcd_show(now_date, now_time)
+        time.sleep(1)
+
+
 def all_leds_off():
     GPIO.output(RED_LED, GPIO.LOW)
     GPIO.output(YELLOW_LED, GPIO.LOW)
@@ -115,10 +151,14 @@ def generate_pattern(length):
 
 def show_pattern(pattern):
     print("\nWatch the pattern:")
-    time.sleep(1)
+    lcd_show_temp("Watch pattern", "", 1.0)
+    time.sleep(0.5)
+
     for color in pattern:
         flash_led(color)
+
     print("Now repeat the pattern by pressing the buttons.")
+    lcd_show_temp("Repeat pattern", "", 1.0)
 
 
 def wait_for_button_press():
@@ -147,13 +187,13 @@ def wait_for_button_press():
 def get_user_pattern(length):
     entered = []
     print("Enter the pattern:")
+    lcd_show_temp("Enter pattern", "", 1.0)
 
     for i in range(length):
         pressed = wait_for_button_press()
         entered.append(pressed)
         print(f"Button {i + 1}: {pressed}")
 
-        # brief LED feedback when button is pressed
         GPIO.output(LED_PINS[pressed], GPIO.HIGH)
         time.sleep(0.15)
         GPIO.output(LED_PINS[pressed], GPIO.LOW)
@@ -162,21 +202,14 @@ def get_user_pattern(length):
 
 
 def play_note(freq, duration):
-    """
-    Play one note on the buzzer.
-    """
     buzzer_pwm.ChangeFrequency(freq)
-    buzzer_pwm.start(50)   # 50% duty cycle
+    buzzer_pwm.start(50)
     time.sleep(duration)
     buzzer_pwm.stop()
     time.sleep(NOTE_GAP)
 
 
 def music_loop():
-    """
-    Keep looping the tune until stop_music is set.
-    Runs in a background thread.
-    """
     while not stop_music.is_set():
         for note in tune:
             if stop_music.is_set():
@@ -185,6 +218,10 @@ def music_loop():
 
 
 try:
+    # Start LCD clock thread
+    clock_thread = threading.Thread(target=clock_loop, daemon=True)
+    clock_thread.start()
+
     # Start music thread
     music_thread = threading.Thread(target=music_loop, daemon=True)
     music_thread.start()
@@ -197,16 +234,33 @@ try:
 
         if user_pattern == pattern:
             print("\nCorrect!")
+            lcd_show_temp("Correct!", "Good job", 2.0)
             stop_music.set()
             time.sleep(0.1)
             break
         else:
             print("\nIncorrect, try again.")
+            lcd_show_temp("Incorrect", "Try again", 2.0)
             flash_all_leds(times=3)
             time.sleep(1)
 
 finally:
+    print("\nShutting down cleanly...")
+
     stop_music.set()
-    buzzer_pwm.stop()
+    stop_clock.set()
+    time.sleep(0.1)
+
+    try:
+        buzzer_pwm.stop()
+        del buzzer_pwm
+    except:
+        pass
+
     all_leds_off()
+    GPIO.output(BUZZER, GPIO.LOW)
+
+    with lcd_lock:
+        lcd.clear()
+
     GPIO.cleanup()
