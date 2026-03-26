@@ -16,6 +16,9 @@ lcd_lock = threading.Lock()
 stop_clock = threading.Event()
 message_override = threading.Event()
 
+last_line1 = None
+last_line2 = None
+
 # ------------------------
 # Button pins
 # ------------------------
@@ -81,12 +84,6 @@ LED_PINS = {
     "green": GREEN_LED
 }
 
-BUTTON_PINS = {
-    "red": RED_BTN,
-    "yellow": YELLOW_BTN,
-    "green": GREEN_BTN
-}
-
 COLORS = ["red", "yellow", "green"]
 
 # ------------------------
@@ -95,29 +92,54 @@ COLORS = ["red", "yellow", "green"]
 stop_music = threading.Event()
 
 
-def lcd_show(line1="", line2=""):
+def lcd_show(line1="", line2="", force=False):
+    global last_line1, last_line2
+
+    line1 = line1[:16].ljust(16)
+    line2 = line2[:16].ljust(16)
+
     with lcd_lock:
-        lcd.clear()
-        lcd.cursor_pos = (0, 0)
-        lcd.write_string(line1[:16].ljust(16))
-        lcd.cursor_pos = (1, 0)
-        lcd.write_string(line2[:16].ljust(16))
+        if force or line1 != last_line1:
+            lcd.cursor_pos = (0, 0)
+            lcd.write_string(line1)
+            last_line1 = line1
+
+        if force or line2 != last_line2:
+            lcd.cursor_pos = (1, 0)
+            lcd.write_string(line2)
+            last_line2 = line2
 
 
 def lcd_show_temp(line1="", line2="", duration=1.5):
+    global last_line1, last_line2
+
     message_override.set()
-    lcd_show(line1, line2)
+
+    with lcd_lock:
+        lcd.clear()
+        last_line1 = None
+        last_line2 = None
+
+    lcd_show(line1, line2, force=True)
     time.sleep(duration)
     message_override.clear()
 
 
 def clock_loop():
+    last_time_str = None
+    last_date_str = None
+
     while not stop_clock.is_set():
         if not message_override.is_set():
             now_date = strftime('%m/%d/%Y')
-            now_time = strftime('%I:%M:%S %p')
-            lcd_show(now_date, now_time)
-        time.sleep(1)
+            now_time = strftime('%I:%M %p')   # hours and minutes only
+
+            if now_date != last_date_str or now_time != last_time_str:
+                lcd_show(now_date, now_time)
+                last_date_str = now_date
+                last_time_str = now_time
+
+        time.sleep(0.2)
 
 
 def all_leds_off():
@@ -237,12 +259,19 @@ try:
             lcd_show_temp("Correct!", "Good job", 2.0)
             stop_music.set()
             time.sleep(0.1)
-            break
+
+            print("Game complete. LCD will continue showing the time.")
+            while True:
+                time.sleep(1)
+
         else:
             print("\nIncorrect, try again.")
             lcd_show_temp("Incorrect", "Try again", 2.0)
             flash_all_leds(times=3)
             time.sleep(1)
+
+except KeyboardInterrupt:
+    print("\nUser stopped program.")
 
 finally:
     print("\nShutting down cleanly...")
